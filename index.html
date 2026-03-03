@@ -1031,7 +1031,7 @@ async function closeSo() {
 const SBT_KEY = 'khoBaiTap_v1';
 const SBT_COUNT_KEY = 'quizCount_v1';
 let khoBaiTap = [];
-let quizCount = 3; // mặc định 3 câu
+let quizCount = 1; // mặc định 1 câu
 
 async function loadKhoFromStorage() {
   try {
@@ -1326,17 +1326,56 @@ function renderQList() {
   });
 }
 
-// Bốc ngẫu nhiên N câu không trùng từ kho (N = quizCount)
+// Track thứ tự câu hỏi chưa xuất hiện (cho cả kho lẫn quizData mặc định)
+let _queueDefault = [];  // hàng đợi cho quizData mặc định
+let _queueKho = [];      // hàng đợi cho khoBaiTap
+
+function _buildQueue(pool) {
+  const arr = pool.map((_, i) => i);
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i+1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// Bốc N câu không trùng, hết 1 vòng mới lặp lại
 async function pickRandom3Questions() {
   await loadKhoFromStorage();
-  if (khoBaiTap.length === 0) return null;
-  const pool = [...khoBaiTap];
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i+1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+  const useKho = khoBaiTap.length > 0;
+  const pool = useKho ? khoBaiTap : null;
+
+  if (useKho) {
+    if (_queueKho.length < quizCount) {
+      const newBatch = _buildQueue(pool);
+      // Đảm bảo câu đầu batch mới ≠ câu cuối batch cũ
+      if (_queueKho.length === 0 && newBatch[0] === (_lastPickedKho ?? -1)) {
+        newBatch.push(newBatch.shift());
+      }
+      _queueKho.push(...newBatch);
+    }
+    const indices = _queueKho.splice(0, quizCount);
+    _lastPickedKho = indices[indices.length - 1];
+    return indices.map(i => pool[i]);
+  } else {
+    // Dùng quizData mặc định
+    if (_queueDefault.length < quizCount) {
+      const newBatch = _buildQueue(quizData);
+      if (_queueDefault.length === 0 && newBatch[0] === (_lastPickedDefault ?? -1)) {
+        newBatch.push(newBatch.shift());
+      }
+      _queueDefault.push(...newBatch);
+    }
+    const indices = _queueDefault.splice(0, quizCount);
+    _lastPickedDefault = indices[indices.length - 1];
+    return indices.map(i => ({
+      q: quizData[i].q,
+      opts: quizData[i].opts.map((t, li) => ({ letter: ['A','B','C','D'][li], text: t })),
+      correct: ['A','B','C','D'][quizData[i].correct]
+    }));
   }
-  return pool.slice(0, Math.min(quizCount, pool.length));
 }
+let _lastPickedKho = -1, _lastPickedDefault = -1;
 
 // ── ÂM THANH ──
 const AC = new (window.AudioContext || window.webkitAudioContext)();
@@ -1606,18 +1645,23 @@ document.getElementById('soBaiTapModal').addEventListener('click', function(e) {
 // ===================== CAMERA QUIZ =====================
 const quizData = [
   {
-    q: 'Việt Nam có bao nhiêu tỉnh và thành phố trực thuộc trung ương?',
-    opts: ['58', '62', '63', '65'],
-    correct: 2
-  },
-  {
-    q: 'Sông nào dài nhất chảy qua lãnh thổ Việt Nam?',
-    opts: ['Sông Hồng', 'Sông Mekong', 'Sông Đà', 'Sông Mã'],
+    q: 'Số lớn nhất trong các số sau là:',
+    opts: ['45 678', '65 687', '55 768', '35 786'],
     correct: 1
   },
   {
-    q: 'Đỉnh núi cao nhất Việt Nam là gì?',
-    opts: ['Ngọc Linh', 'Pu Si Lung', 'Fansipan', 'Bạch Mã'],
+    q: 'Dấu thích hợp điền vào chỗ chấm là: 67 245 .......... 67 425',
+    opts: ['>', '<', '=', 'Không so sánh được'],
+    correct: 1
+  },
+  {
+    q: 'Chọn phát biểu đúng:',
+    opts: ['39 999 > 40 000', '40 000 < 39 999', '40 000 > 39 999', '40 000 = 39 999'],
+    correct: 2
+  },
+  {
+    q: 'Số nhỏ nhất trong các số sau là:',
+    opts: ['81 234', '61 243', '41 324', '51 432'],
     correct: 2
   }
 ];
@@ -1640,7 +1684,11 @@ async function openCameraQuiz() {
       correct: q.correct ? (['A','B','C','D'].indexOf(q.correct.toUpperCase())) : -1
     }));
   } else {
-    activeQuizData = quizData;
+    activeQuizData = quizData.map(q => ({
+      q: q.q,
+      opts: q.opts,
+      correct: q.correct
+    }));
   }
   loadQuestion(0);
 }
