@@ -750,6 +750,7 @@
     <div class="sbt-footer">
       <span class="sbt-stat" id="sbtStat">0 câu hỏi trong kho</span>
       <button class="sbt-clear-btn" id="sbtClearBtn" onclick="clearSbt()">🗑 Xoá kho</button>
+      <button class="so-save-btn" id="sbtSaveBtn" onclick="saveKhoManual()">💾 Lưu Kho</button>
     </div>
   </div>
 </div>
@@ -955,8 +956,8 @@ let soNames = Array(40).fill('');
 
 async function loadSoFromStorage() {
   try {
-    const result = await window.storage.get(SO_KEY, true);
-    if (result && result.value) soNames = JSON.parse(result.value);
+    const raw = localStorage.getItem(SO_KEY);
+    if (raw) soNames = JSON.parse(raw);
   } catch(e) { soNames = Array(40).fill(''); }
 }
 
@@ -966,7 +967,7 @@ async function saveSo() {
   const btn = document.querySelector('.so-save-btn');
   btn.textContent = '⏳ Đang lưu...';
   try {
-    await window.storage.set(SO_KEY, JSON.stringify(soNames), true);
+    localStorage.setItem(SO_KEY, JSON.stringify(soNames));
     btn.textContent = '✅ Đã lưu!';
   } catch(e) {
     btn.textContent = '❌ Lỗi lưu!';
@@ -976,11 +977,63 @@ async function saveSo() {
 }
 
 async function clearSo() {
-  if (!confirm('Xoá toàn bộ danh sách?\n⚠️ Sẽ xoá với tất cả mọi người!')) return;
+  if (!confirm('Xoá toàn bộ danh sách?')) return;
   soNames = Array(40).fill('');
   document.querySelectorAll('.so-input').forEach(inp => inp.value = '');
-  try { await window.storage.delete(SO_KEY, true); } catch(e) {}
+  try { localStorage.removeItem(SO_KEY); } catch(e) {}
   updateSoCount();
+}
+
+async function loadKhoFromStorage() {
+  try {
+    const raw = localStorage.getItem(SBT_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) khoBaiTap = parsed;
+    }
+  } catch(e) {}
+  try {
+    const n = parseInt(localStorage.getItem(SBT_COUNT_KEY));
+    if (n >= 1 && n <= 5) quizCount = n;
+  } catch(e) {}
+}
+
+async function saveQuizCount() {
+  const inp = document.getElementById('quizCountInput');
+  if (!inp) return;
+  let val = parseInt(inp.value);
+  if (isNaN(val) || val < 1) val = 1;
+  if (val > 5) val = 5;
+  inp.value = val;
+  quizCount = val;
+  try { localStorage.setItem(SBT_COUNT_KEY, String(val)); } catch(e) {}
+}
+
+async function saveKhoManual() {
+  const btn = document.getElementById('sbtSaveBtn');
+  btn.textContent = '⏳ Đang lưu...';
+  try {
+    localStorage.setItem(SBT_KEY, JSON.stringify(khoBaiTap));
+    localStorage.setItem(SBT_COUNT_KEY, String(quizCount));
+    btn.textContent = '✅ Đã lưu!';
+  } catch(e) {
+    btn.textContent = '❌ Lỗi lưu!';
+  }
+  setTimeout(() => { btn.textContent = '💾 Lưu Kho'; }, 1500);
+}
+
+async function saveKhoToStorage() {
+  try {
+    localStorage.setItem(SBT_KEY, JSON.stringify(khoBaiTap));
+  } catch(e) { console.error('Save kho error:', e); }
+}
+
+async function clearSbt() {
+  if (!confirm('Xoá toàn bộ ngân hàng câu hỏi?')) return;
+  khoBaiTap = [];
+  try { localStorage.removeItem(SBT_KEY); } catch(e) {}
+  updateSbtStat();
+  renderQList();
 }
 
 function updateSoCount() {
@@ -1107,6 +1160,9 @@ async function parseBaiTap() {
   const raw = document.getElementById('sbtRawText').value;
   const resultEl = document.getElementById('sbtParseResult');
   if (!raw.trim()) { resultEl.textContent = '⚠️ Vui lòng dán nội dung trước!'; return; }
+
+  // Reload kho mới nhất trước khi merge
+  await loadKhoFromStorage();
 
   const parsed = [];
   const qStartRe   = /^(?:Câu\s*)?(\d+)[.:)]\s*(.+)/i;
@@ -1478,10 +1534,16 @@ function playFinish() {
   });
 }
 
-// Init: load shared storage on page load
+// Init: load shared storage on page load + show loading indicator
 (async () => {
+  const loadMsg = document.createElement('div');
+  loadMsg.style.cssText = 'position:fixed;bottom:14px;right:14px;z-index:99999;background:rgba(0,0,0,0.8);color:var(--gold-light);font-family:Philosopher,serif;font-size:12px;padding:8px 16px;border-radius:20px;border:1px solid var(--gold-dark);letter-spacing:1px;transition:opacity 0.5s;';
+  loadMsg.textContent = '⏳ Đang tải dữ liệu...';
+  document.body.appendChild(loadMsg);
   try { await loadSoFromStorage(); } catch(e) {}
   try { await loadKhoFromStorage(); } catch(e) {}
+  loadMsg.textContent = '✅ Dữ liệu đã sẵn sàng (' + khoBaiTap.length + ' câu hỏi)';
+  setTimeout(() => { loadMsg.style.opacity = '0'; setTimeout(() => loadMsg.remove(), 500); }, 2000);
 })();
 
 // ── PICK RANDOM NAME ──
